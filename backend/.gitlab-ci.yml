@@ -1,0 +1,85 @@
+
+# В нашем Gitlab для сборки контейнеров воспользуемся Докером в Докере :)  
+# https://docs.gitlab.com/ee/ci/docker/using_docker_build.html#use-the-kubernetes-executor-with-docker-in-docker
+# Для сборки образов с использованием Docker-in-Docker:
+# добавить в код Downstream пайплайнов в секцию include подготовленный шаблон, содержащий необходимые настройки:
+#  https://gitlab.praktikum-services.ru/templates/ci/-/blob/main/DockerInDockerTemplate.yml
+# использовать в задачах сборки в качестве образа стабильную версию образа Docker:dind docker:20.10.12-dind-rootless
+#
+include:
+  - template: Security/SAST.gitlab-ci.yml
+
+stages:
+  - build
+  - test
+  - publish
+  - deploy
+
+cache:
+  paths:
+    - ${CI_PROJECT_DIR}/.m2/repository
+
+variables:
+  VERSION: 1.0.${CI_PIPELINE_ID}
+  VAULT_ADDR: "https://130.193.48.76:8200"
+
+nodejs-scan-sast:
+  rules:
+    - when: never
+
+build-backend:
+  stage: build
+  image: "golang:1.17"
+  script:
+    - cd backend
+    - CGO_ENABLED=0 GOOS=linux go build -o main cmd/api/main.go
+    - tar -zcvf main.tar.gz main
+    - curl --fail --insecure -v -u "${NEXUS_USERNAME}:${NEXUS_PASSWORD}" --upload-file main.tar.gz https://artem-mihaylov.ru/repository/momo-store-backend/${VERSION}/momo-store-backend-${VERSION}.tar.gz
+  artifacts:
+    paths: 
+      - backend/main
+    when: on_success
+    expire_in: "30 days"
+
+build-image-backend:
+  stage: publish
+  image: 
+    name: "gcr.io/kaniko-project/executor:v1.17.0-debug"
+    entrypoint: [""]
+  script:
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --cache=true --cache-run-layers --cache-copy-layers --build-arg VERSION=$VERSION --context "${CI_PROJECT_DIR}/backend" --dockerfile "${CI_PROJECT_DIR}/backend/Dockerfile" --destination "$CI_REGISTRY_IMAGE/momo-store-backend:$CI_COMMIT_SHA"
+  needs:
+    - build-backend
+
+test-backend:
+  stage: build
+  image: "golang:1.17"
+  script:
+    - cd backend
+    - go test ./...
+
+deploy:
+  image: $CI_REGISTRY_IMAGE:latest
+  stage: deploy
+  script: |
+      cd backend
+
+      # helm package --version ${VERSION} backend-chart
+      # curl --insecure -u ${NEXUS_USERNAME}:${NEXUS_PASSWORD} $NEXUS_HELM_REPO --upload-file backend-chart-${VERSION}.tgz
+
+      # helm repo add --username ${NEXUS_USERNAME} --password ${NEXUS_PASSWORD} nexus $NEXUS_HELM_REPO
+      # helm repo update
+
+      helm upgrade \
+      --kubeconfig ${KUBE_CONFIG} \
+      --kube-ca-file ${KUBE_CERTIFICATE} \
+      --debug \
+      -n momo-store \
+      --install \
+      momo-store-backend \
+      backend-chart \
+      --set environment=prod \
+      --set image.tag=${CI_COMMIT_SHA} \
+      --atomic --timeout 15m \
+      --create-namespace

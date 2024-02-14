@@ -1,0 +1,20 @@
+# Default values for backend.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: artemmihaylov.gitlab.yandexcloud.net:5050/final-project/momo-store/momo-store-backend
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 2000Mi
+  requests:
+    cpu: 10m
+    memory: 128Mi
+
+environment: unknown
