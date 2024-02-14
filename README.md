@@ -1,6 +1,6 @@
 # Данный репозиторий служит для хранения кода приложения и его развертывания
 
-## репозиторий с развертыванием инфраструктуры https://artemmihaylov.gitlab.yandexcloud.net/final-project/infrastructure
+## репозиторий с развертыванием инфраструктуры https://github.com/hihoak/yandex-cloud-final-project-infra
 
 ## Релизный цикл
 
